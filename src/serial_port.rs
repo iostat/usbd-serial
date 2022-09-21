@@ -1,7 +1,6 @@
 use crate::buffer::{Buffer, DefaultBufferStore};
 use crate::cdc_acm::*;
 use core::borrow::BorrowMut;
-use core::mem;
 use core::slice;
 use usb_device::class_prelude::*;
 use usb_device::Result;
@@ -41,17 +40,17 @@ enum WriteState {
     Full(usize),
 }
 
-impl<B> SerialPort<'_, B>
-where
-    B: UsbBus,
+impl<B, TReadStore, TWriteStore> SerialPort<'_, B, TReadStore, TWriteStore>
+    where
+        B: UsbBus,
+        TReadStore: Default + BorrowMut<[u8]>,
+        TWriteStore: Default + BorrowMut<[u8]>,
 {
     /// Creates a new USB serial port with the provided UsbBus and 128 byte read/write buffers.
     pub fn new(
         alloc: &UsbBusAllocator<B>,
     ) -> SerialPort<'_, B, DefaultBufferStore, DefaultBufferStore> {
-        SerialPort::new_with_store(alloc, unsafe { mem::uninitialized() }, unsafe {
-            mem::uninitialized()
-        })
+        SerialPort::new_with_store(alloc, Default::default(), Default::default())
     }
 }
 
@@ -143,7 +142,7 @@ where
         }
 
         let r = buf.read(data.len(), |buf_data| {
-            &data[..buf_data.len()].copy_from_slice(buf_data);
+            data[..buf_data.len()].copy_from_slice(buf_data);
 
             Ok(buf_data.len())
         });

@@ -55,7 +55,7 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
             return 0;
         }
 
-        &self.store.borrow_mut()[self.wpos..self.wpos + count].copy_from_slice(&data[..count]);
+        self.store.borrow_mut()[self.wpos..self.wpos + count].copy_from_slice(&data[..count]);
 
         self.wpos += count;
         count
@@ -124,6 +124,12 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
 
 /// Default backing store for the mediocre buffer
 pub struct DefaultBufferStore([u8; 128]);
+
+impl Default for DefaultBufferStore {
+    fn default() -> Self {
+        DefaultBufferStore([0u8; 128])
+    }
+}
 
 impl Borrow<[u8]> for DefaultBufferStore {
     fn borrow(&self) -> &[u8] {
