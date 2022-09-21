@@ -54,6 +54,29 @@ impl<B, TReadStore, TWriteStore> SerialPort<'_, B, TReadStore, TWriteStore>
     }
 }
 
+#[derive(Debug)]
+pub enum BufferedOperationError<T> {
+    UsbError(UsbError),
+    OperationError(T),
+}
+
+impl<T> From<UsbError> for BufferedOperationError<T> {
+    fn from(e: UsbError) -> Self {
+        BufferedOperationError::UsbError(e)
+    }
+}
+
+impl<T> BufferedOperationError<T> {
+    fn unwrap_usb_error(self) -> UsbError {
+        match self {
+            BufferedOperationError::UsbError(e) => e,
+            BufferedOperationError::OperationError(_) => panic!("Tried to unwrap_usb_error on something else!")
+        }
+    }
+}
+
+type BufferedOperationResult<T> = core::result::Result<usize, BufferedOperationError<T>>;
+
 impl<B, RS, WS> SerialPort<'_, B, RS, WS>
 where
     B: UsbBus,
@@ -114,6 +137,21 @@ where
         }
     }
 
+    /// Reserves max_count bytes of space for writing in the internal buffer, and passes a slice
+    /// pointing to them to a closure for writing. The closure should return the number of bytes
+    /// actually written and is allowed to write less than max_bytes. If the callback returns an
+    /// error, any written data is ignored.
+    ///
+    /// Note that you are expected to manually flush afterwards...
+    pub fn write_buffered<F, E>(&mut self, max_count: usize, f: F) -> core::result::Result<usize, E>
+        where F: FnOnce(&mut [u8]) -> core::result::Result<usize, E> {
+        if max_count != 0 {
+            self.write_buf.write_all(max_count, f)
+        } else {
+            Ok(0)
+        }
+    }
+
     /// Reads bytes from the port into `data` and returns the number of bytes read.
     ///
     /// # Errors
@@ -122,32 +160,44 @@ where
     ///
     /// Other errors from `usb-device` may also be propagated.
     pub fn read(&mut self, data: &mut [u8]) -> Result<usize> {
+        self.read_many(data.len(), |buf_data| {
+            data[..buf_data.len()].copy_from_slice(buf_data);
+            Ok(buf_data.len())
+        }).map_err(BufferedOperationError::<()>::unwrap_usb_error)
+    }
+
+    /// Takes up to max_count bytes from the buffer and passes a slice pointing to them to a closure
+    /// for reading. The closure should return the number of bytes actually read and is allowed to
+    /// read less than max_bytes. If the callback returns an error, the data is not discarded from
+    /// the buffer.
+    ///
+    /// # Errors
+    ///
+    /// * [`WouldBlock`](usb_device::UsbError::WouldBlock) - No bytes available for reading.
+    ///
+    /// Other errors from `usb-device` may also be propagated.
+    pub fn read_many<F, E>(&mut self, max_count: usize, f: F) -> BufferedOperationResult<E>
+        where F: FnOnce(&[u8]) -> core::result::Result<usize, E> {
         let buf = &mut self.read_buf;
         let inner = &mut self.inner;
 
         // Try to read a packet from the endpoint and write it into the buffer if it fits. Propagate
         // errors except `WouldBlock`.
 
-        buf.write_all(inner.max_packet_size() as usize, |buf_data| {
+        let _: usize = buf.write_all(inner.max_packet_size() as usize, |buf_data| {
             match inner.read_packet(buf_data) {
                 Ok(c) => Ok(c),
                 Err(UsbError::WouldBlock) => Ok(0),
-                Err(err) => Err(err),
+                Err(err) => Err(BufferedOperationError::UsbError(err)),
             }
         })?;
 
-        if buf.available_read() == 0 {
+        if buf.available_read() == 0 && max_count != 0 {
             // No data available for reading.
-            return Err(UsbError::WouldBlock);
+            return Err(UsbError::WouldBlock.into());
         }
 
-        let r = buf.read(data.len(), |buf_data| {
-            data[..buf_data.len()].copy_from_slice(buf_data);
-
-            Ok(buf_data.len())
-        });
-
-        r
+        buf.read(max_count, f).map_err(BufferedOperationError::OperationError)
     }
 
     /// Sends as much as possible of the current write buffer. Returns `Ok` if all data that has
