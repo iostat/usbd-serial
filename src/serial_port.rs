@@ -253,6 +253,11 @@ where
             Ok(())
         }
     }
+
+    /// Returns the amount of bytes available for reading
+    pub fn available_read(&self) -> usize {
+        self.read_buf.available_read()
+    }
 }
 
 impl<B, RS, WS> UsbClass<B> for SerialPort<'_, B, RS, WS>
