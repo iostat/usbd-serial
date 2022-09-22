@@ -41,10 +41,10 @@ enum WriteState {
 }
 
 impl<B, TReadStore, TWriteStore> SerialPort<'_, B, TReadStore, TWriteStore>
-    where
-        B: UsbBus,
-        TReadStore: Default + BorrowMut<[u8]>,
-        TWriteStore: Default + BorrowMut<[u8]>,
+where
+    B: UsbBus,
+    TReadStore: Default + BorrowMut<[u8]>,
+    TWriteStore: Default + BorrowMut<[u8]>,
 {
     /// Creates a new USB serial port with the provided UsbBus and 128 byte read/write buffers.
     pub fn new(
@@ -70,7 +70,9 @@ impl<T> BufferedOperationError<T> {
     fn unwrap_usb_error(self) -> UsbError {
         match self {
             BufferedOperationError::UsbError(e) => e,
-            BufferedOperationError::OperationError(_) => panic!("Tried to unwrap_usb_error on something else!")
+            BufferedOperationError::OperationError(_) => {
+                panic!("Tried to unwrap_usb_error on something else!")
+            }
         }
     }
 }
@@ -144,7 +146,9 @@ where
     ///
     /// Note that you are expected to manually flush afterwards...
     pub fn write_buffered<F, E>(&mut self, max_count: usize, f: F) -> core::result::Result<usize, E>
-        where F: FnOnce(&mut [u8]) -> core::result::Result<usize, E> {
+    where
+        F: FnOnce(&mut [u8]) -> core::result::Result<usize, E>,
+    {
         if max_count != 0 {
             self.write_buf.write_all(max_count, f)
         } else {
@@ -163,7 +167,8 @@ where
         self.read_many(data.len(), |buf_data| {
             data[..buf_data.len()].copy_from_slice(buf_data);
             Ok(buf_data.len())
-        }).map_err(BufferedOperationError::<()>::unwrap_usb_error)
+        })
+        .map_err(BufferedOperationError::<()>::unwrap_usb_error)
     }
 
     /// Takes up to max_count bytes from the buffer and passes a slice pointing to them to a closure
@@ -177,7 +182,9 @@ where
     ///
     /// Other errors from `usb-device` may also be propagated.
     pub fn read_many<F, E>(&mut self, max_count: usize, f: F) -> BufferedOperationResult<E>
-        where F: FnOnce(&[u8]) -> core::result::Result<usize, E> {
+    where
+        F: FnOnce(&[u8]) -> core::result::Result<usize, E>,
+    {
         let buf = &mut self.read_buf;
         let inner = &mut self.inner;
 
@@ -197,7 +204,8 @@ where
             return Err(UsbError::WouldBlock.into());
         }
 
-        buf.read(max_count, f).map_err(BufferedOperationError::OperationError)
+        buf.read(max_count, f)
+            .map_err(BufferedOperationError::OperationError)
     }
 
     /// Sends as much as possible of the current write buffer. Returns `Ok` if all data that has
