@@ -42,6 +42,26 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
         self.store.borrow().len() - self.wpos
     }
 
+    // faster way to read a single byte
+    #[inline(always)]
+    pub fn read_single_fast(&mut self) -> Option<u8> {
+        if self.available_read() == 0 {
+            return None;
+        }
+        self.rpos += 1;
+        Some(self.store.borrow()[self.rpos - 1])
+    }
+
+    // faster way to write a single byte
+    #[inline(always)]
+    pub fn write_single_fast(&mut self, data: u8) {
+        if self.available_write_without_discard() == 0 {
+            self.discard_already_read_data();
+        }
+        self.store.borrow_mut()[self.wpos] = data;
+        self.wpos += 1
+    }
+
     // Writes as much as possible of data to the buffer and returns the number of bytes written
     pub fn write(&mut self, data: &[u8]) -> usize {
         if data.len() > self.available_write_without_discard() && self.rpos > 0 {
